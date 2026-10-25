@@ -19,7 +19,7 @@ def main():
                 raise ValueError('Invalid source page; original cache retained')
             page_blocks = [b for b in blocks if b['page'] == number]
             ids.extend(b['id'] for b in reading_order(page_blocks, document[number - 1].cropbox.width))
-    print(json.dumps({'version': 2, 'ids': ids}))
+    print(json.dumps({'version': 4, 'ids': ids}))
 
 
 if __name__ == '__main__':

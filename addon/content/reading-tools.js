@@ -38,7 +38,8 @@ window.ZNRTools = (() => {
         ? [...document.querySelectorAll('.generated-text')].find(n=>n.dataset.blockId===segment.blockId&&n.closest('#figure-viewer')?.open)
           ||document.getElementById('source-'+segment.blockId)?.querySelector('.generated-text')
         : ($('figure-viewer').open && [...$('figure-caption-panel').querySelectorAll('.source-block')].find(n=>n.dataset.id===segment.blockId)?.querySelector(':scope > .' + segment.language))
-          || [...document.querySelectorAll('.source-part')].find(n=>n.dataset.sourceId===segment.blockId&&n.dataset.language===segment.language)
+          || [...document.querySelectorAll('.source-part')].find(n=>n.dataset.sourceId===segment.blockId&&n.dataset.language===segment.language
+            &&offset>=Number(n.dataset.sourceOffset||0)&&offset<=Number(n.dataset.sourceOffset||0)+n.textContent.length)
           || document.getElementById('source-' + segment.blockId)?.querySelector(':scope > .' + segment.language);
       if (!parent) return null;
       offset=Math.max(0,offset-Number(parent.dataset.sourceOffset||0));
@@ -66,7 +67,17 @@ window.ZNRTools = (() => {
     $('annotation-quote').textContent = annotation ? (annotation.segments || []).map(s => s.text || api.state().reading?.blocks.find(b => b.id === s.blockId)?.[s.language]?.slice(s.start, s.end) || '').join('\n').slice(0, 400) : selected?.text.slice(0, 400) || '';
     const hasChinese = (annotation?.segments || selected?.segments || []).some(s => s.language === 'translation');
     const generated=(annotation?.segments||selected?.segments||[]).some(s=>s.language==='readingNote');
-    $('annotation-hint').textContent = generated ? '高亮保留在 AI 图解中；原 PDF 保存关联图表的批注，选段及批注同步到 Obsidian。' : hasChinese ? '中文保留精确选区，原 PDF 按对应英文段落定位。' : '保存为 Zotero 原生高亮，并自动同步到 Obsidian。';
+    const chineseGroups=new Map();
+    for(const segment of annotation?.segments||selected?.segments||[])if(segment.language==='translation'){
+      if(!chineseGroups.has(segment.blockId))chineseGroups.set(segment.blockId,[]);chineseGroups.get(segment.blockId).push(segment);
+    }
+    const mappings=annotation?(annotation.mapping?[annotation.mapping]:[]):[...chineseGroups].map(([id,segments])=>ZNRSentenceAlignment.resolve(api.state().reading?.blocks.find(b=>b.id===id),segments));
+    const unresolved=mappings.some(m=>m.mode==='unresolved'),legacy=annotation&&hasChinese&&!annotation.mapping;
+    $('annotation-hint').textContent = generated ? '高亮保留在 AI 图解中；原 PDF 保存关联图表的批注，选段及批注同步到 Obsidian。' : hasChinese
+      ? legacy?'此旧标注仍按段落定位；已修改的原生标注不会自动移动。':unresolved?'未能可靠匹配英文句子。中文保留精确高亮，PDF 保存定位批注，不扩大为整段高亮。':'中文保留精确选区，PDF 高亮下面的对应英文句子（非逐字对齐）。请核对后保存。'
+      : '保存为 Zotero 原生高亮，并自动同步到 Obsidian。';
+    $('annotation-source-preview').hidden=!hasChinese||!mappings.some(m=>m.text);
+    $('annotation-source-text').textContent=mappings.filter(m=>m.text).map(m=>m.text).join('\n\n');
     $('annotation-comment').value = annotation?.displayComment || '';
     $('annotation-remove').hidden = !annotation; $('annotation-source').hidden = !annotation;
     $('annotation-save').disabled = annotation?.editable === false;
@@ -243,7 +254,7 @@ window.ZNRTools = (() => {
         }
         action('selection', { selection, prompt: type === 'explain' ? '请解释我选中的内容，结合本论文的上下文，并标注依据。' : '', intent: type });
       }
-      else if (type === 'source') { const first = selected.segments[0]; if($('figure-viewer').open)$('figure-viewer').close(); action('source', { blockId: first.blockId, start: first.language === 'original' ? first.start : 0, ...(first.language === 'original' ? { end: first.end } : {}) }); }
+      else if (type === 'source') { const first = selected.segments[0]; if($('figure-viewer').open)$('figure-viewer').close(); action('source', { blockId: first.blockId, selection:selected, start: first.language === 'original' ? first.start : 0, ...(first.language === 'original' ? { end: first.end } : {}) }); }
       else if (type === 'highlight' || type === 'comment') {
         $('annotation-choice').hidden = true; openEditor(null, $('selection-tools').getBoundingClientRect());
         if (type === 'comment') $('annotation-comment').focus();

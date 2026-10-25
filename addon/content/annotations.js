@@ -5,6 +5,7 @@
   const validColor = color => /^#[a-f0-9]{6}$/i.test(color || '');
   const signature = json => json ? JSON.stringify([json.type, json.text || '', json.comment || '', json.color, json.position, json.tags || []]) : null;
   const overlap = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const chinesePrefix=part=>(part.note?'中文选段，未能可靠匹配英文句子；保留段落定位批注：\n':'中文选段，原文按句定位（非逐字对齐）：\n')+(part.segments||[part.segment]).map(s=>s.text).join('')+'\n\n';
   function rectsFor(layout, start = 0, end = Infinity) {
     if (!layout?.mapped) return [];
     const lines = new Map();
@@ -19,7 +20,7 @@
     if (snapshot?.layout?.status !== 'ready') throw new Error('文字定位正在准备；可稍后标注，或先返回原 PDF。');
     if (snapshot.layout.version !== 1 || snapshot.layout.fingerprint !== snapshot.fingerprint || snapshot.layout.coordinateSystem !== 'pdf-unrotated-bottom-left') throw new Error('定位缓存与当前 PDF 不一致，请重新打开文献。');
     if (!Array.isArray(selection?.segments) || !selection.segments.length || selection.segments.length > 100) throw new Error('请重新选择正文或译文。');
-    return selection.segments.map(segment => {
+    const parts = selection.segments.map(segment => {
       const block = snapshot.reading?.blocks.find(b => b.id === segment.blockId);
       if (!['original','translation','readingNote'].includes(segment.language)) throw new Error('选区来源无效。');
       const language = segment.language;
@@ -34,10 +35,37 @@
         const y=Math.max(crop[1],Math.min(crop[3]-22,caption?.[1]??crop[3]-28));
         return {segment:{...segment,language},block,rects:[[x,y,x+22,y+22]],note:true};
       }
-      const rects = rectsFor(snapshot.layout.blocks[block.id], language === 'original' ? segment.start : 0, language === 'original' ? segment.end : Infinity);
+      const rects = language==='translation' ? [] : rectsFor(snapshot.layout.blocks[block.id],segment.start,segment.end);
+      if(language==='translation')return {segment:{...segment,language},block,rects};
       if (!rects.length) throw new Error('此段尚无可靠文字坐标，请返回原 PDF 标注。');
       return { segment: { ...segment, language }, block, rects };
     });
+    // Several visible slices can belong to one canonical Chinese paragraph.
+    // Store their precise ranges on one native paragraph highlight.
+    const grouped=[];
+    for(const part of parts){
+      const previous=grouped.at(-1),segment=part.segment;
+      if(segment.language==='translation'&&previous?.segment.language==='translation'&&previous.block.id===part.block.id
+        &&segment.start>=(previous.segments?.at(-1)||previous.segment).end){
+        previous.segments||=[previous.segment];previous.segments.push(segment);
+      }else grouped.push(part);
+    }
+    for(const part of grouped)if(part.segment.language==='translation'){
+      const mapping=root.ZNRSentenceAlignment.resolve(part.block,part.segments||[part.segment]);part.mapping=mapping;
+      if(mapping.mode==='sentence'){
+        part.rects=mapping.ranges.flatMap(r=>rectsFor(snapshot.layout.blocks[part.block.id],r.start,r.end));
+        // Merge overlapping line rectangles when disjoint Chinese display
+        // slices refer to the same English sentence.
+        part.rects=part.rects.filter((r,i,all)=>all.findIndex(x=>JSON.stringify(x)===JSON.stringify(r))===i);
+        if(!part.rects.length)throw new Error('此句尚无可靠文字坐标，请返回原 PDF 标注。');
+      }else{
+        const first=rectsFor(snapshot.layout.blocks[part.block.id])[0],crop=snapshot.layout.pages?.[String(part.block.page)]?.cropBox;
+        if(!first||!crop)throw new Error('此段尚无可靠文字坐标，请返回原 PDF 标注。');
+        const x=Math.max(crop[0],Math.min(crop[2]-22,first[0])),y=Math.max(crop[1],Math.min(crop[3]-22,first[1]));
+        part.rects=[[x,y,x+22,y+22]];part.note=true;
+      }
+    }
+    return grouped;
   }
   function rangesFromRects(snapshot, position) {
     const segments = [];
@@ -128,7 +156,47 @@
       return attachment;
     }
     key(libraryID, key) { return libraryID + ':' + key; }
-    async refresh() {
+    refresh() { return this.serialize(()=>this.refreshNow()); }
+    async repairLegacy(binding,snapshot,attachment,items) {
+      if(snapshot?.layout?.status!=='ready'||!attachment.isEditable())return;
+      const changes=[];
+      for(const item of items){
+        const key=this.key(item.libraryID,item.key),link=this.data.links[key];
+        if(!link||link.mapping||link.paperKey!==binding.key||link.fingerprint!==snapshot.fingerprint
+          ||!link.prefix?.startsWith('中文选段，原文按段落定位：')||!link.segments?.every(s=>s.language==='translation')
+          ||item.deleted||!item.isEditable()||item.annotationIsExternal)continue;
+        const json=root.Zotero.Annotations.toJSONSync(item);
+        if(json.readOnly||json.type!=='highlight'||link.position!==JSON.stringify(json.position)||!json.comment?.startsWith(link.prefix))continue;
+        let parts;try{parts=selectionParts(snapshot,{segments:link.segments});}catch{continue;}
+        if(parts.length!==1)continue;const part=parts[0];
+        // Migrate only plugin-owned, unchanged source text with a content-based
+        // match. Never relocate manually edited/native annotations by guesswork.
+        if(part.note||!part.mapping?.evidence.includes('anchors')||json.text!==part.block.original||part.mapping.text===json.text)continue;
+        const next=copy(json),nextLink=copy(link);next.key=item.key;
+        next.text=part.mapping.text;next.position={pageIndex:part.block.page-1,rects:part.rects};
+        nextLink.prefix=chinesePrefix(part);next.comment=nextLink.prefix+json.comment.slice(link.prefix.length);
+        nextLink.position=JSON.stringify(next.position);nextLink.mapping=part.mapping;
+        changes.push({key,itemKey:item.key,before:json,oldLink:link,json:next,link:nextLink});
+      }
+      if(!changes.length)return;
+      // A recoverable backup precedes the transaction; the same annotation keys
+      // are updated, so Zotero links and Obsidian record IDs remain stable.
+      await root.IOUtils.writeUTF8(root.PathUtils.join(this.runtime.directory,'annotation-position-v1-'+Date.now()+'.json'),JSON.stringify(changes),{flush:true});
+      this.busy=true;
+      try{
+        await this.transaction(async()=>{
+          for(const row of changes){await this.nativeSave(attachment,row.json);this.data.links[row.key]=row.link;
+            for(const undo of this.data.undo)for(const entry of undo.before||[])if(entry.key===row.itemKey&&entry.after===signature(row.before))entry.after=signature(row.json);
+          }
+        },attachment,changes.map(r=>r.itemKey));
+        await this.save();
+      }finally{this.busy=false;}
+      binding.annotationStatus='原文定位已修正 · Obsidian 待同步';
+      try{const bridge=this.runtime.bridge();await bridge.annotations.sync(binding.paper);
+        if(!bridge.store.state.notes[binding.paper.libraryID+':'+binding.paper.itemKey]?.dirty)binding.annotationStatus='原文定位已修正 · 已同步到 Obsidian';
+      }catch{}
+    }
+    async refreshNow() {
       for (const binding of this.runtime.bindings.values()) {
         if (!binding.key || !binding.paper) continue;
         try {
@@ -136,6 +204,7 @@
           await root.Zotero.Items.loadDataTypes([attachment], ['childItems']);
           const items = await root.Zotero.Items.getAsync(attachment.getAnnotations(false, true));
           await root.Zotero.Items.loadDataTypes(items, ['annotation', 'annotationDeferred', 'tags']);
+          await this.repairLegacy(binding,snapshot,attachment,items);
           const rows = [];
           for (const item of items) {
             if (!['highlight', 'underline', 'note'].includes(item.annotationType) || item.deleted) continue;
@@ -147,7 +216,7 @@
             const prefix = link?.prefix || '';
             rows.push({ key: item.key, color: json.color, comment: json.comment || '', displayComment: prefix && (json.comment || '').startsWith(prefix) ? json.comment.slice(prefix.length) : json.comment || '',
               segments, paragraphRefs: [...new Set(segments.filter(s => s.language === 'original').map(s => s.blockId))],
-              page: json.position.pageIndex + 1, operationId: link?.operationId || null, editable: attachment.isEditable() && item.isEditable() && !json.readOnly && !json.isExternal });
+              page: json.position.pageIndex + 1, mapping:link?.mapping||null, operationId: link?.operationId || null, editable: attachment.isEditable() && item.isEditable() && !json.readOnly && !json.isExternal });
           }
           this.rows.set(binding.key, rows); this.runtime.emit(binding);
         } catch (error) { this.runtime.log(error); }
@@ -162,7 +231,7 @@
         if (note?.dirty) throw new Error('笔记等待写入');
         binding.annotationStatus = '已同步到 Zotero 与 Obsidian';
       } catch { binding.annotationStatus = '已保存到 Zotero · Obsidian 待同步'; }
-      await this.refresh();
+      await this.refreshNow();
     }
     async create(binding, message) {
       return this.serialize(async () => {
@@ -177,14 +246,14 @@
         if (operation.keys.length !== parts.length) throw new Error('选区与待保存记录不一致，请重新选择。');
         operation.entries = parts.map((part, index) => {
             const { block, rects, segment } = part, key = operation.keys[index];
-            const prefix = part.note ? `AI 图表解读选段（非论文原文），关联 ${block.id}，第 ${block.page} 页：\n${segment.text}\n\n`
-              : segment.language === 'translation' ? '中文选段，原文按段落定位：\n' + segment.text + '\n\n' : '';
+            const prefix = segment.language==='readingNote' ? `AI 图表解读选段（非论文原文），关联 ${block.id}，第 ${block.page} 页：\n${segment.text}\n\n`
+              : segment.language === 'translation' ? chinesePrefix(part) : '';
             const position = { pageIndex: block.page - 1, rects };
             const json = { key, type: part.note ? 'note' : 'highlight', color: validColor(message.color) ? message.color : COLORS[0],
-              text: part.note ? '' : segment.language === 'translation' ? block.original : segment.text, comment: prefix + String(message.comment || ''),
+              text: part.note ? '' : segment.language === 'translation' ? part.mapping.text : segment.text, comment: prefix + String(message.comment || ''),
               pageLabel: String(block.page), sortIndex: [String(block.page - 1).padStart(5, '0'), String(Math.max(0, Math.floor(block.order * 1000 + segment.start))).slice(0, 6).padStart(6, '0'), '00000'].join('|'), position };
             const link = { paperKey: binding.key, fingerprint: snapshot.fingerprint,
-              segments: [copy(segment)], prefix, position: JSON.stringify(position), operationId: message.operationId };
+              segments: copy(part.segments||[segment]), mapping:part.mapping||null, prefix, position: JSON.stringify(position), operationId: message.operationId };
             return { json, link };
         });
         this.data.operations[operationKey] = operation; await this.save();

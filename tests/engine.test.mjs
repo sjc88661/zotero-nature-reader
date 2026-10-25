@@ -29,7 +29,7 @@ async function fixture(t, options = {}) {
   const model = options.model || { run: async ({prompt}) => {
     if (prompt.startsWith('为这张图表')) return '图表阅读提示 [F001 p.2]，以图注为依据。';
     if (prompt.includes('生成中文精读指南')) return JSON.stringify({overview:'指南',readingOrder:['先读问题'],highlights:[{category:'研究目标',blockId:'S001',original:'Alpha',translation:'阿尔法',explanation:'原文依据'}],glossary:[]});
-    const input=JSON.parse(prompt.slice(prompt.indexOf('\n\n[')+2));
+    const input=JSON.parse(prompt.slice(prompt.indexOf('\n\n{')+2)).blocks;
     return JSON.stringify({blocks:input.map(block=>({id:block.id,translation:'译文 '+block.id}))});
   } };
   const config = { workRoot:path.join(root,'work'),model,extract };
@@ -91,7 +91,7 @@ test('中途失败后重启只续翻未完成段落，不重写已完成译文',
   await restarted.start(); restarted.startReading(f.opened.key); await restarted.jobs.get(f.opened.key+':reading').promise;
   const result=restarted.snapshot(f.opened.key).reading;
   assert.equal(result.status,'complete'); assert.equal(result.blocks[0].translation,'已完成的第一段');
-  assert.equal(prompts.filter(prompt=>prompt.includes('以下完整原文块')).length,1);
+  assert.equal(prompts.filter(prompt=>prompt.includes('以下来源块')).length,1);
   await restarted.close();
 });
 
@@ -146,7 +146,7 @@ test('无效导读保留已译正文并可继续，空条目不会污染归档�
   const f=await fixture(t,{model:{run:async({prompt})=>{
     if(prompt.startsWith('为这张图表'))return '图表阅读提示（模拟响应）。';
     if(prompt.includes('生成中文精读指南'))return JSON.stringify(bad?{overview:'指南',highlights:[],readingOrder:{bad:true}}:{overview:'指南',readingOrder:['先读问题'],highlights:[null],glossary:[null,{term:'Alpha',translation:'阿尔法'}]});
-    translations++;const input=JSON.parse(prompt.slice(prompt.indexOf('\n\n[')+2));return JSON.stringify({blocks:input.map(block=>({id:block.id,translation:'保留译文 '+block.id}))});
+    translations++;const input=JSON.parse(prompt.slice(prompt.indexOf('\n\n{')+2)).blocks;return JSON.stringify({blocks:input.map(block=>({id:block.id,translation:'保留译文 '+block.id}))});
   }}});
   f.engine.startReading(f.opened.key);await f.engine.jobs.get(f.opened.key+':reading').promise;
   assert.equal(f.engine.snapshot(f.opened.key).reading.status,'error');

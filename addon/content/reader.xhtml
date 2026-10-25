@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
-<head><meta charset="utf-8" /><title>双语精读</title><link rel="stylesheet" href="chrome://zotero-nature/content/styles.css?v=0.2.9" /></head>
+<head><meta charset="utf-8" /><title>双语精读</title><link rel="stylesheet" href="chrome://zotero-nature/content/styles.css?v=0.2.13" /></head>
 <body class="reader">
   <header class="reading-toolbar">
     <div class="toolbar-start">
@@ -28,6 +28,7 @@
   <section id="annotation-editor" class="annotation-editor" role="dialog" aria-label="高亮与批注" hidden="hidden">
     <div class="editor-heading"><strong id="annotation-title">保存标注</strong><button id="annotation-close" class="icon-button" aria-label="关闭批注">×</button></div>
     <select id="annotation-choice" aria-label="选择重叠标注" hidden="hidden"></select><p id="annotation-quote" class="annotation-quote"></p><p id="annotation-hint" class="small muted"></p>
+    <div id="annotation-source-preview" class="annotation-source-preview" hidden="hidden"><span class="small muted">对应英文 · 按句定位</span><p id="annotation-source-text"></p></div>
     <div id="annotation-colors" class="annotation-colors" role="group" aria-label="高亮颜色"></div>
     <label for="annotation-comment">批注</label><textarea id="annotation-comment" rows="3" placeholder="写下你的理解或疑问…"></textarea>
     <div class="annotation-actions"><button id="annotation-remove" class="text-button" hidden="hidden">删除标注</button><button id="annotation-source" class="text-button" hidden="hidden">查看原文</button><button id="annotation-save" class="primary">保存</button></div>
@@ -52,5 +53,5 @@
       </section>
     </div><footer class="figure-window-footer"><span>拖动中间分隔线调整宽度 · 双击均分</span><span id="figure-ratio">左图 55% / 右文 45%</span></footer>
   </dialog>
-  <script src="chrome://zotero-nature/content/selection-text.js"></script><script src="chrome://zotero-nature/content/common.js"></script><script src="chrome://zotero-nature/content/paper-metadata.js"></script><script src="chrome://zotero-nature/content/reading-layout.js"></script><script src="chrome://zotero-nature/content/figure-chat.js"></script><script src="chrome://zotero-nature/content/reading-tools.js"></script><script src="chrome://zotero-nature/content/reader.js"></script>
+  <script src="chrome://zotero-nature/content/selection-text.js?v=0.2.13"></script><script src="chrome://zotero-nature/content/common.js?v=0.2.13"></script><script src="chrome://zotero-nature/content/paper-metadata.js?v=0.2.13"></script><script src="chrome://zotero-nature/content/reading-layout.js?v=0.2.13"></script><script src="chrome://zotero-nature/content/figure-chat.js?v=0.2.13"></script><script src="chrome://zotero-nature/content/sentence-alignment.js?v=0.2.13"></script><script src="chrome://zotero-nature/content/reading-tools.js?v=0.2.13"></script><script src="chrome://zotero-nature/content/reader.js?v=0.2.13"></script>
 </body></html>

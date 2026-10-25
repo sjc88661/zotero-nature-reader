@@ -17,6 +17,7 @@ async function startup({ rootURI }) {
     structuredClone: win.structuredClone.bind(win), TextDecoder: win.TextDecoder };
   scope.globalThis = scope;
   Services.scriptloader.loadSubScriptWithOptions(rootURI + 'content/selection-text.js', { target: scope, charset: 'UTF-8', ignoreCache: true });
+  Services.scriptloader.loadSubScriptWithOptions(rootURI + 'content/sentence-alignment.js', { target: scope, charset: 'UTF-8', ignoreCache: true });
   Services.scriptloader.loadSubScriptWithOptions(rootURI + 'content/annotations.js', { target: scope, charset: 'UTF-8', ignoreCache: true });
   Services.scriptloader.loadSubScriptWithOptions(rootURI + 'content/runtime.js', { target: scope, charset: 'UTF-8', ignoreCache: true });
   runtime = new scope.ZNRRuntime();

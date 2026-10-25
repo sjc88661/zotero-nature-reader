@@ -21,8 +21,9 @@ if ($readerFrom -ge 0) {
   $readerText = $readerText.Remove($readerFrom, $readerTo+$readerEnd.Length-$readerFrom)
 }
 $readerUri = ([uri](Join-Path $readerRoot 'backend/plugin.mjs')).AbsoluteUri
-$readerBuild = ((Get-FileHash -LiteralPath (Join-Path $readerRoot 'backend/plugin.mjs')).Hash+(Get-FileHash -LiteralPath (Join-Path $readerRoot 'backend/engine.mjs')).Hash+(Get-FileHash -LiteralPath (Join-Path $readerRoot 'backend/harness.mjs')).Hash)
-$readerEntry = "`r`n$readerStart`r`n- insert:`r`n    - id: zotero-nature-reader`r`n      name: '$readerUri`?build=$readerBuild'`r`n$readerEnd`r`n"
+$readerBuild = & (Join-Path $PSScriptRoot 'reader-build.ps1')
+$readerReload = [guid]::NewGuid().ToString('N')
+$readerEntry = "`r`n$readerStart`r`n- insert:`r`n    - id: zotero-nature-reader`r`n      name: '$readerUri`?build=$readerBuild&reload=$readerReload'`r`n$readerEnd`r`n"
 [System.IO.File]::WriteAllText($ProfilePath, $readerText+$readerEntry, (New-Object System.Text.UTF8Encoding($false)))
-Write-Output 'Harness entry added. Restart Harness to load the plugin.'
+Write-Output 'Harness entry added. Completely quit and reopen Harness to load the plugin; closing only its window is insufficient.'
 Write-Output ('Backup: '+$readerBackup)

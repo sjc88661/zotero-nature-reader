@@ -4,6 +4,7 @@ import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
 export const LAYOUT_VERSION = 1;
+export const LAYOUT_MAPPING_VERSION = 2;
 export function layoutContentHash(blocks) {
   return createHash('sha256').update(JSON.stringify(blocks.map(block => [block.id ?? null, block.page ?? null,
     block.order ?? null, block.bbox ?? null, block.original || '']))).digest('hex');

@@ -1,9 +1,55 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HarnessModel } from '../backend/harness.mjs';
-import { mkdtemp,writeFile,unlink,rmdir } from 'node:fs/promises';
+import { mkdtemp,writeFile,unlink,rmdir,mkdir,readFile,rm } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import { apply as startReaderPlugin } from '../backend/plugin.mjs';
+
+test('多个 Harness 实例共用连接与文献写入者，主实例退出后自动接管',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'znr-owner-'));
+  const skillRoot=path.join(root,'skills'),dshHome=path.join(root,'dsh'),workRoot=path.join(root,'work');
+  const resources=['nature-reader/SKILL.md','nature-reader/static/core/principles.md','nature-reader/static/core/workflow.md',
+    'nature-reader/static/core/output-contract.md','nature-reader/static/fragments/source/pdf-text.md',
+    'nature-shared/core/terminology-ledger.md','nature-reader/references/grounding-rules.md'];
+  const contexts=[];
+  const context=()=>{
+    const disposers=[];
+    const ctx={effect(setup){const dispose=setup();disposers.push(dispose);return dispose;},
+      logger:{warn(error){throw new Error(String(error));}},async close(){for(const dispose of disposers.splice(0).reverse())await dispose();}};
+    contexts.push(ctx);return ctx;
+  };
+  const connectionFile=path.join(dshHome,'zotero-nature','connection.json');
+  const connection=async()=>JSON.parse(await readFile(connectionFile,'utf8'));
+  try {
+    for(const resource of resources){const file=path.join(skillRoot,resource);await mkdir(path.dirname(file),{recursive:true});await writeFile(file,'Test-only Nature instructions.');}
+    const config={dshHome,skillRoot,workRoot};
+    const primary=context(),secondary=context();
+    await startReaderPlugin(primary,config);const first=await connection();
+    await startReaderPlugin(secondary,config);const second=await connection();
+    assert.equal(second.url,first.url,'第二个实例不能覆盖连接端口');
+    assert.equal(second.token,first.token,'第二个实例不能替换现有连接凭据');
+    await primary.close();
+    const deadline=Date.now()+7000;let replacement;
+    while(Date.now()<deadline){
+      try{replacement=await connection();if(replacement.token!==first.token)break;}catch(error){if(error.code!=='ENOENT')throw error;}
+      await new Promise(resolve=>setTimeout(resolve,50));
+    }
+    assert.ok(replacement&&replacement.token!==first.token,'主实例退出后，等待实例应接管');
+    const health=await new Promise((resolve,reject)=>{
+      import('node:http').then(({get})=>get(replacement.url+'/health',{headers:{Authorization:'Bearer '+replacement.token}},response=>{
+        let body='';response.setEncoding('utf8');response.on('data',chunk=>body+=chunk);response.on('end',()=>resolve(JSON.parse(body)));
+      }).on('error',reject),reject);
+    });
+    assert.equal(health.ok,true);
+    await secondary.close();
+    await assert.rejects(readFile(connectionFile,'utf8'),{code:'ENOENT'});
+  } finally {
+    for(const ctx of contexts)await ctx.close();
+    const relative=path.relative(path.resolve(tmpdir()),path.resolve(root));
+    if(!relative.startsWith('..')&&!path.isAbsolute(relative)&&relative.startsWith('znr-owner-'))await rm(root,{recursive:true,force:true});
+  }
+});
 
 test('图像使用 Harness 持久附件传入模型；纯文字模型明确回退图注',async()=>{
   const dir=await mkdtemp(path.join(tmpdir(),'znr-image-')),file=path.join(dir,'test.png');

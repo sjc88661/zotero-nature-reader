@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process';
-export const READING_ORDER_VERSION = 2;
+export const READING_ORDER_VERSION = 4;
 
 export function makeOrderRepair(python, script) {
   return ({pdf, blocks, signal}) => new Promise((resolve,reject) => {

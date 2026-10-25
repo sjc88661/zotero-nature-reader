@@ -186,7 +186,7 @@
       const handle = doc.createXULElement('box');
       handle.style.cssText = 'position:absolute;top:0;bottom:0;width:5px;z-index:9;cursor:col-resize;background:transparent;';
       const viewer = doc.createXULElement('browser');
-      viewer.setAttribute('src', 'chrome://zotero-nature/content/reader.xhtml'); viewer.setAttribute('type', 'content');
+      viewer.setAttribute('src', 'chrome://zotero-nature/content/reader.xhtml?v=0.2.13'); viewer.setAttribute('type', 'content');
       viewer.style.cssText = 'position:absolute;top:0;bottom:0;right:0;z-index:7;'; viewer.hidden = true;
       binding.sidebar = sidebar; binding.viewer = viewer; binding.handle = handle;
       const init = frame => {
@@ -356,7 +356,12 @@
         if (!Number.isInteger(page) || page < 1) return;
         binding.mode = 'pdf'; this.layout(binding);
         const snapshot = this.known.get(binding.key)?.snapshot;
-        const rects = root.ZNRAnnotationCore.rectsFor(snapshot?.layout?.blocks?.[block?.id], message.start ?? 0, message.end ?? Infinity);
+        let rects = root.ZNRAnnotationCore.rectsFor(snapshot?.layout?.blocks?.[block?.id], message.start ?? 0, message.end ?? Infinity);
+        if(message.selection?.segments?.length){
+          try{const part=root.ZNRAnnotationCore.selectionParts(snapshot,message.selection)[0];rects=part.rects;
+            if(part.mapping?.mode==='unresolved')binding.notice='未能可靠匹配英文句子，已定位到段落起始处。';
+          }catch{rects=[];}
+        }
         await binding.reader.navigate(message.annotationKey ? { annotationID: message.annotationKey } : rects.length ? { position: { pageIndex: page - 1, rects } } : { pageIndex: page - 1 }); this.emit(binding); return;
       }
       if (message.action === 'selection') {
@@ -463,7 +468,7 @@
           }
           this.emit(binding);
         }
-        const status = { version: '0.2.9', connected: this.connected, documents: this.known.size, readers: this.bindings.size,
+        const status = { version: '0.2.13', connected: this.connected, documents: this.known.size, readers: this.bindings.size,
           lastError: this.lastError, layout: [...this.bindings.values()].map(binding => {
             const box = binding.sidebar.getBoundingClientRect(); return { width: box.width, height: box.height, x: box.x, y: box.y,
               panelReady: binding.sidebar.contentDocument?.documentElement?.getAttribute('data-panel-ready'),

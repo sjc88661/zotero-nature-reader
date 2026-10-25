@@ -8,6 +8,10 @@ The first public package targets Windows and was exercised with Zotero 10. The m
 
 Install both XPIs from Releases, configure your vault in the Zotero bridge settings, and follow [INSTALL.md](docs/INSTALL.md) to set up the Python environment and Harness plugin.
 
+Current components: Reader **0.2.13**, Harness backend **0.2.9**, archival bridge **0.3.7**. Chinese selections retain their exact ranges in the bilingual view; content anchors and sentence order locate the corresponding English sentences, with a preview before saving. Uncertain matches become source-linked notes instead of paragraph-wide highlights. This is sentence-level matching, not word alignment.
+
+The update also improves two-column ordering, cross-column/page continuations, metadata folding, glyph coordinates, and shared-session ownership. Existing translations, guides, discussions, and annotation IDs are reused. When upgrading, merge the new source files into the existing directory, preserve `work/`, update both XPIs, rerun the Harness setup script, then completely quit and reopen Harness after other tasks finish. Closing only its window does not reload the backend.
+
 ```powershell
 npm test
 npm run test:bridge

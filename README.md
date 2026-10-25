@@ -14,6 +14,7 @@
 - **图表独立阅读**：左图右文、独立滚动、拖动调宽、缩放；窗口内即可提问并查看回答。
 - **有来源的精读**：阅读指南、分类重点、图表阅读提示，沿用已有内容。
 - **直接标注**：双语选段高亮与批注保存为 Zotero 原生标注，支持编辑、删除、撤销。
+- **中文定位更清楚**：中文保留精确选区，PDF 按对应英文句子高亮；保存前预览范围，无法可靠匹配时保存定位批注。
 - **自动归档**：全文、指南、图解、讨论及标注写入同一篇 Obsidian 文献笔记；Obsidian 关闭时也能保存。
 - **中断恢复**：独立文献会话、稳定记录 ID、增量保存、本地队列和重试。
 
@@ -26,12 +27,14 @@
 
 需要：Zotero、Obsidian 笔记库、已配置默认模型的 DeepSeek Harness、Node.js 22.19+、Python 3.11+，以及外部 `nature-reader` / `nature-shared` 技能目录。图像理解取决于当前模型能力。
 
-1. 从 GitHub Releases 下载 `zotero-nature-reader-0.2.9.xpi` 和 `obsidian-literature-bridge-0.3.4.xpi`；两者都安装到 **Zotero**。
+1. 从 GitHub Releases 下载 `zotero-nature-reader-0.2.13.xpi` 和 `obsidian-literature-bridge-0.3.7.xpi`；两者都安装到 **Zotero**。
 2. 在 **工具 → Obsidian 文献笔记** 中选择自己的 Obsidian 库目录；发布版没有预设个人库路径。
 3. 将源码解压到固定目录，运行 `scripts/setup-python.ps1`，准备外部 Nature 技能，再运行 `scripts/install-harness.ps1`，重启 Harness。
 4. 在 Zotero 打开文本型 PDF，点击 **Nature 精读 → 开始精读**。
 
 完整步骤、技能目录结构与故障处理见 [安装指南](docs/INSTALL.md)。这是 Zotero 插件与 DSH 配套端，**不需要安装 Obsidian 插件**；Awesome GPT 仅在需要归档它的讨论或使用其整理功能时另行安装。
+
+从 0.2.9 升级时，请同时更新源码目录中的 Harness 配套端，重新运行接入脚本并完整退出、重新打开 Harness。保留现有缓存和笔记，升级过程复用已有译文。[升级步骤](docs/INSTALL.md#升级到-0213)
 
 ## 交互演示与宣传素材
 

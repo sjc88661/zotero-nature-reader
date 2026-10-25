@@ -24,7 +24,7 @@ test('metadata migration folds affiliations once, preserves source anchors and p
     original:'1Department of Biology, Ghent University, Belgium. Correspondence: n@example.org.',translation:'1比利时，根特大学，生物学系。通讯作者：n@example.org。'});
   const result=await store.archiveReading(paper,source), file='/vault/'+result.relativePath;
   const note=f.files.get(file).replace('## 个人整理\n\n','## 个人整理\n\n保留我的笔记。\n\n');
-  const legacy=note.replace(/^> \[!info\]- 作者、单位与通讯信息\n/m,'').replace(/^> /gm,'');
+  const legacy=note.replace(/^> \[!info\]- 文献信息 · 作者、单位与出版说明\n/m,'').replace(/^> /gm,'');
   f.files.set(file,legacy);
   const state=JSON.parse(f.files.get(f.host.statePath)); delete state.metadataLayoutVersion;
   const preserved=JSON.stringify(state.readings);
@@ -34,7 +34,7 @@ test('metadata migration folds affiliations once, preserves source anchors and p
   await migrated.save(); await migrated.retry();
   const updated=f.files.get(file),outside=text=>text.replace(/<!-- zob:nature:start -->[\s\S]*?<!-- zob:nature:end -->/,'');
   assert.equal(outside(updated),outside(legacy));
-  assert.equal(updated.match(/> \[!info\]- 作者、单位与通讯信息/g)?.length,1);
+  assert.equal(updated.match(/> \[!info\]- 文献信息 · 作者、单位与出版说明/g)?.length,1);
   assert.ok(updated.indexOf('> [!info]-') < updated.indexOf('The full original paragraph.',updated.indexOf('#### 全文双语对照')));
   assert.ok(updated.includes('> ^'+Core.readingAnchor(source.id,'affiliation')));
   assert.ok(updated.includes('> '+source.blocks.at(-1).translation));

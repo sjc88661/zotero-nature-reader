@@ -47,7 +47,7 @@ function sourceButton(block, compact = false) {
   button.addEventListener('click', () => ZNR.action('source', { blockId: block.id, page: block.page })); return button;
 }
 function categoryTone(category) { return /方法/.test(category) ? 'amber' : /结果/.test(category) ? 'blue' : /局限|不足/.test(category) ? 'rose' : /结论/.test(category) ? 'violet' : 'green'; }
-function paintText(node, block, language, sourceOffset = 0) {
+function paintText(node, block, language, sourceOffset = 0, sourceEnd = block[language].length) {
   const text = block[language], layout = state.layout?.blocks?.[block.id];
   const runs = language === 'original' ? layout?.runs || [] : [];
   const annotations = (state.annotations || []).flatMap(a => (a.segments || []).filter(s => s.blockId === block.id && s.language === language).map(s => ({ ...s, key: a.key, color: a.color })));
@@ -55,7 +55,7 @@ function paintText(node, block, language, sourceOffset = 0) {
     const quote = h[language]; if (!quote || text.indexOf(quote) < 0) return [];
     const start = text.indexOf(quote); return [{ start, end: start + quote.length, tone: categoryTone(h.category) }];
   });
-  const boundaries = [...new Set([sourceOffset, text.length, ...[...runs, ...annotations, ...highlights].flatMap(r => [r.start, r.end])])].filter(n => Number.isInteger(n) && n >= sourceOffset && n <= text.length).sort((a, b) => a - b);
+  const boundaries = [...new Set([sourceOffset, sourceEnd, ...[...runs, ...annotations, ...highlights].flatMap(r => [r.start, r.end])])].filter(n => Number.isInteger(n) && n >= sourceOffset && n <= sourceEnd).sort((a, b) => a - b);
   for (let i = 0; i < boundaries.length - 1; i++) {
     const start = boundaries[i], end = boundaries[i + 1]; if (end <= start) continue;
     const run = runs.find(r => r.start <= start && r.end >= end), marked = annotations.filter(r => r.start < end && r.end > start), emphasis = highlights.find(r => r.start < end && r.end > start);
@@ -105,26 +105,28 @@ function continuationArticle(blocks) {
   const cached=nodes.get(key);if(cached?.stamp===stamp)return cached.node;
   const article=ZNR.element('article',undefined,'source-block reading-anchor continuation-paragraph');article.id='source-'+blocks[0].id;article.dataset.id=blocks[0].id;article.dataset.page=blocks[0].page;
   const meta=ZNR.element('div',undefined,'block-meta');for(const block of blocks)meta.append(sourceButton(block,true));article.append(meta);
+  const translationSpans=ZNRLayout.translationSpans(blocks);
   for(const language of ['original','translation']){
     const paragraph=ZNR.element('div',undefined,'continuation-'+language);let previous='';
     for(const [index,block] of blocks.entries()){
-      const text=block[language]||'';let offset=0;
-      if(language==='translation'&&previous){
-        // Collapse only exact Han-word overlap introduced by separately translated fragments.
-        // Keep canonical strings and source offsets for native annotation mapping.
-        for(let n=Math.min(12,previous.length,text.length);n>=2;n--)if(/^[\u3400-\u9fff]+$/.test(text.slice(0,n))&&previous.endsWith(text.slice(0,n))){offset=n;break;}
-        if(annotations.some(a=>(a.segments||[]).some(s=>s.blockId===block.id&&s.language===language&&s.start<offset)))offset=0;
+      const text=block[language]||'';let ranges=language==='translation'?ZNRLayout.displayRanges(translationSpans[index]):[{start:0,end:text.length}];
+      // An existing annotation on legacy commentary takes precedence over folding.
+      if(annotations.some(a=>(a.segments||[]).some(s=>s.blockId===block.id&&s.language===language&&ranges.reduce((n,r)=>n+Math.max(0,Math.min(r.end,s.end)-Math.max(r.start,s.start)),0)<s.end-s.start)))ranges=[{start:0,end:text.length}];
+      const visible=ranges.map(r=>text.slice(r.start,r.end)).join('');
+      if(index)paragraph.append(document.createTextNode(ZNRLayout.separator(previous,visible,language)));
+      for(const range of ranges){
+        const part=ZNR.element('span',undefined,'source-part '+language);part.dataset.sourceId=block.id;part.dataset.page=block.page;part.dataset.language=language;part.dataset.sourceOffset=String(range.start);part.dataset.sourceEnd=String(range.end);
+        if(language==='original'&&index){part.id='source-'+block.id;part.dataset.id=block.id;}
+        paintText(part,block,language,range.start,range.end);paragraph.append(part);
       }
-      if(index)paragraph.append(document.createTextNode(language==='original'?(/[-\u2010]$/.test(previous)?'':' '):(/[\u3400-\u9fff]$/.test(previous)&&/^[\u3400-\u9fff]/.test(text.slice(offset))?'':' ')));
-      const part=ZNR.element('span',undefined,'source-part '+language);part.dataset.sourceId=block.id;part.dataset.page=block.page;part.dataset.language=language;part.dataset.sourceOffset=String(offset);
-      if(language==='original'&&index){part.id='source-'+block.id;part.dataset.id=block.id;}
-      if(offset)part.title=`衔接处已省略重复的“${text.slice(0,offset)}”；原译文与来源位置保留。`;
-      paintText(part,block,language,offset);paragraph.append(part);previous=text;
+      previous=visible;
     }
     article.append(paragraph);
   }
-  const sources=ZNR.element('div',undefined,'continuation-sources');sources.append(ZNR.element('span','跨栏 / 跨页续段','muted small'));
+  const sources=ZNR.element('div',undefined,'continuation-sources');sources.append(ZNR.element('span','原文续段','muted small'));
   for(const block of blocks)sources.append(sourceButton(block));article.append(sources);
+  const legacyNotes=translationSpans.flatMap((span,index)=>span.notes.map(note=>`${blocks[index].id}：${note}`));
+  if(legacyNotes.length){const details=ZNR.element('details',undefined,'fragment-group');details.append(ZNR.element('summary','原译文的断栏说明（已折叠）'));for(const note of legacyNotes)details.append(ZNR.element('p',note,'muted small'));article.append(details);}
   for(const annotation of annotations.filter(a=>a.paragraphRefs?.some(id=>ids.has(id))&&!(a.segments||[]).some(s=>ids.has(s.blockId)))){
     const badge=ZNR.element('button','本段有原文标注','paragraph-annotation');badge.dataset.annotationKeys=annotation.key;article.append(badge);
   }
@@ -135,7 +137,7 @@ function fragmentGroup(key, blocks, graphic) {
   const authors = key.startsWith('authors-');
   if (!group) {
     group = ZNR.element('details', undefined, 'fragment-group' + (authors ? ' author-details' : '')); group.dataset.group = key; group.open = expandedGroups.has(key);
-    const summary = ZNR.element('summary'); summary.append(ZNR.element('span', authors ? '作者、单位与通讯信息' : graphic ? '图表文字与译文' : `第 ${blocks[0].page} 页附注`), ZNR.element('span', authors ? [state.paper?.journal, state.paper?.year].filter(Boolean).join(' · ') : `${blocks.length} 条 · 点击展开`, 'muted small'));
+    const summary = ZNR.element('summary'); summary.append(ZNR.element('span', authors ? '文献信息 · 作者、单位与出版说明' : graphic ? '图表文字与译文' : `第 ${blocks[0].page} 页附注`), ZNR.element('span', authors ? [state.paper?.journal, state.paper?.year].filter(Boolean).join(' · ') : `${blocks.length} 条 · 点击展开`, 'muted small'));
     group.append(summary, ZNR.element('div', undefined, 'fragment-list')); groups.set(key, group);
     group.addEventListener('toggle', () => { if (group.open) expandedGroups.add(key); else expandedGroups.delete(key); queuePosition(); });
   }
@@ -168,7 +170,7 @@ function render(next) {
   const stamp = JSON.stringify([reading.id, reading.revision, next.layout?.revision, next.layout?.status, next.annotations || [], Object.keys(next.assets || {})]);
   if (stamp !== signature) {
     signature = stamp;
-    const plan = ZNRLayout.layoutReading(reading.blocks, state.paper?.title || reading.title, state.paper?.authors, next.layout);
+    const plan = ZNRLayout.layoutReading(reading.blocks, state.paper?.title || reading.title, state.paper?.authors, next.layout, reading.flow);
     const byId = new Map(reading.blocks.map(block => [block.id, block])), captionOwners = new Map();
     for (const block of reading.blocks) if (block.asset) for (const id of block.captionIds || []) if (byId.get(id)?.type === 'caption') captionOwners.set(id, block.id);
     const desired = [], toc = [], figures = [], lastOnPage = new Map(); for (const block of reading.blocks) lastOnPage.set(block.page, block.id);

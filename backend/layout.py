@@ -19,6 +19,7 @@ import sys
 import unicodedata
 
 VERSION = 1
+MAPPING_VERSION = 2
 
 
 def digest(text):
@@ -252,9 +253,57 @@ def browser_font(data, extension, observed, family):
     return font
 
 
+def ligature_clusters(page):
+    """Keep only actual multi-Unicode glyph clusters recorded by the renderer.
+
+    MuPDF uses gid=-1 for additional Unicode characters of one physical glyph.
+    rawdict may put those characters at the glyph's end with zero width.
+    An empty rectangle alone is never evidence of a ligature.
+    """
+    import pymupdf
+    result = defaultdict(set)
+    for span in page.get_texttrace():
+        chars, index = span['chars'], 0
+        while index < len(chars):
+            first = chars[index]
+            end = index + 1
+            if first[1] >= 0:
+                while end < len(chars) and chars[end][1] == -1 and chars[end][2] == first[2]:
+                    end += 1
+                rect = pymupdf.Rect(first[3])
+                if end > index + 1 and not rect.is_empty and not rect.is_infinite:
+                    text = ''.join(chr(c[0]) for c in chars[index:end])
+                    key = (face_name(span['font']), *rounded(first[2]))
+                    result[key].add((text, tuple(first[3])))
+            index = end
+    return result
+
+
+def ligature_rectangles(chars, font, clusters):
+    """Reuse the real base glyph's box only after an unambiguous trace match."""
+    import pymupdf
+    repaired = {}
+    for index, first in enumerate(chars):
+        key = (face_name(font), *rounded(first['origin']))
+        candidates = clusters.get(key, ())
+        if len(candidates) != 1:
+            continue
+        text, _trace_box = next(iter(candidates))
+        group = chars[index:index + len(text)]
+        base = pymupdf.Rect(first['bbox'])
+        if ''.join(c['c'] for c in group) != text or base.is_empty or base.is_infinite:
+            continue
+        for offset, char in enumerate(group[1:], 1):
+            rect = pymupdf.Rect(char['bbox'])
+            if ((rect.width == 0 and rect.height > 0) or (rect.height == 0 and rect.width > 0)) and not rect.is_infinite:
+                repaired[index + offset] = first['bbox']
+    return repaired
+
+
 def page_glyphs(page, fonts):
     import pymupdf
     result = []
+    clusters = ligature_clusters(page)
     flags = pymupdf.TEXTFLAGS_DICT & ~pymupdf.TEXT_PRESERVE_IMAGES
     for block in page.get_text('rawdict', flags=flags, sort=False)['blocks']:
         if block.get('type') != 0:
@@ -264,8 +313,10 @@ def page_glyphs(page, fonts):
             glyphs = []
             for span in line['spans']:
                 font_id = fonts.get(page, span)
-                for char in span.get('chars', []):
-                    glyphs.append({'c': char['c'], 'bbox': char['bbox'], 'origin': char['origin'],
+                chars = span.get('chars', [])
+                repaired = ligature_rectangles(chars, span.get('font', ''), clusters)
+                for index, char in enumerate(chars):
+                    glyphs.append({'c': char['c'], 'bbox': repaired.get(index, char['bbox']), 'origin': char['origin'],
                                    'line': line_id, 'fontId': font_id, 'size': float(span['size']),
                                    'flags': span.get('flags', 0), 'font': span.get('font', ''),
                                    'dir': line.get('dir', (1, 0))})
@@ -386,8 +437,8 @@ def map_block(block, lines, transform):
 def enrich(document, blocks, out, fingerprint='', signature=None):
     import pymupdf
     signature = signature or content_hash(blocks)
-    result = {'version': VERSION, 'status': 'ready', 'fingerprint': fingerprint,
-              'contentHash': signature, 'revision': signature, 'coordinateSystem': 'pdf-unrotated-bottom-left',
+    result = {'version': VERSION, 'mappingVersion': MAPPING_VERSION, 'status': 'ready', 'fingerprint': fingerprint,
+              'contentHash': signature, 'revision': f'{signature}:mapping-{MAPPING_VERSION}', 'coordinateSystem': 'pdf-unrotated-bottom-left',
               'pages': {}, 'blocks': {}, 'fonts': [], 'warnings': []}
     fonts = Fonts(document, out / 'fonts')
     for page in document:

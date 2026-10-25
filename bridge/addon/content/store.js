@@ -20,11 +20,11 @@
       }
       // Reformat cached full texts once through the normal serialized writer.
       // Offline vaults keep the dirty flag and retry; no generation is requested.
-      if ((this.state.metadataLayoutVersion || 0) < 1) {
+      if ((this.state.metadataLayoutVersion || 0) < 3) {
         for (const [identity, readings] of Object.entries(this.state.readings)) {
           if (Object.keys(readings).length && this.state.notes[identity]) this.state.notes[identity].dirty = true;
         }
-        this.state.metadataLayoutVersion = 1;
+        this.state.metadataLayoutVersion = 3;
       }
     }
 

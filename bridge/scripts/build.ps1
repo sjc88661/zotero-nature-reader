@@ -3,8 +3,10 @@ $taskProject = Split-Path -Parent $PSScriptRoot
 $taskAddon = Join-Path $taskProject 'addon'
 # The reader owns the shared metadata detector; retain the vendored copy when
 # building the bridge by itself.
-$taskMetadataSource = Join-Path (Split-Path -Parent $taskProject) 'zotero-nature-reader\addon\content\paper-metadata.js'
+$taskMetadataSource = Join-Path (Split-Path -Parent $taskProject) 'addon\content\paper-metadata.js'
 if (Test-Path -LiteralPath $taskMetadataSource) { Copy-Item -LiteralPath $taskMetadataSource -Destination (Join-Path $taskAddon 'content\paper-metadata.js') -Force }
+$taskLayoutSource = Join-Path (Split-Path -Parent $taskProject) 'addon\content\reading-layout.js'
+if (Test-Path -LiteralPath $taskLayoutSource) { Copy-Item -LiteralPath $taskLayoutSource -Destination (Join-Path $taskAddon 'content\reading-layout.js') -Force }
 $taskDist = Join-Path $taskProject 'dist'
 $taskManifest = Get-Content -LiteralPath (Join-Path $taskAddon 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($taskManifest.applications.zotero.update_url -notmatch '^https:') { throw 'Zotero requires an HTTPS applications.zotero.update_url; a file URL disables the add-on.' }

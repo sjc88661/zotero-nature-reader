@@ -15,7 +15,7 @@ async function startup({ rootURI }) {
   const win = Zotero.getMainWindow();
   const scope = { Zotero, Services, Components, ChromeUtils, IOUtils: win.IOUtils, PathUtils: win.PathUtils, structuredClone: win.structuredClone.bind(win), TextDecoder: win.TextDecoder };
   scope.globalThis = scope;
-  for (const file of ["paper-metadata.js", "core.js", "adapter.js", "store.js", "annotations.js", "runtime.js"]) {
+  for (const file of ["paper-metadata.js", "reading-layout.js", "core.js", "adapter.js", "store.js", "annotations.js", "runtime.js"]) {
     Services.scriptloader.loadSubScriptWithOptions(rootURI + "content/" + file, { target: scope, charset: "UTF-8", ignoreCache: true });
   }
   runtime = new scope.ZOBRuntime();

@@ -3,11 +3,13 @@ import { createReadStream } from 'node:fs';
 import { access, copyFile, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { LAYOUT_VERSION, layoutContentHash } from './layout.mjs';
-import { READING_ORDER_VERSION } from './reading-order.mjs';
+const { LAYOUT_VERSION, LAYOUT_MAPPING_VERSION, layoutContentHash } = await import(
+  new URL(`./layout.mjs${new URL(import.meta.url).search}`, import.meta.url).href);
+const {READING_ORDER_VERSION} = await import(new URL(`./reading-order.mjs${new URL(import.meta.url).search}`,import.meta.url).href);
+const {readingFlow} = await import(new URL(`./reading-flow.mjs${new URL(import.meta.url).search}`, import.meta.url).href);
 
 export const PROTOCOL_VERSION = 1;
-export const VERSION = '0.2.5';
+export const VERSION = '0.2.9';
 const clone = value => structuredClone(value);
 const interrupted = new Set(['pending', 'streaming', 'extracting', 'translating']);
 
@@ -53,13 +55,20 @@ export function parseJSON(text) {
   }
 }
 
-export function translationBatches(blocks, limit = 6000) {
+export function translationBatches(blocks, limit = 6000, paragraphs = []) {
   const batches = [];
   let batch = [], size = 0;
+  const byId = new Map(blocks.map(b => [b.id,b])), owners = new Map(), consumed = new Set();
+  for (const group of paragraphs) for (const id of group) owners.set(id,group);
   for (const block of blocks) {
-    if (block.status === 'complete' || !block.original?.trim() || ['figure', 'table', 'equation'].includes(block.type)) continue;
-    if (batch.length && size + block.original.length > limit) { batches.push(batch); batch = []; size = 0; }
-    batch.push(block); size += block.original.length;
+    if (consumed.has(block.id)) continue;
+    const group = (owners.get(block.id) || [block.id]).map(id => byId.get(id)).filter(Boolean);
+    for (const member of group) consumed.add(member.id);
+    const pending = group.filter(b => b.status !== 'complete' && b.original?.trim() && !['figure','table','equation'].includes(b.type));
+    if (!pending.length) continue;
+    const length = pending.reduce((sum,b) => sum + b.original.length,0);
+    if (batch.length && size + length > limit) { batches.push(batch); batch = []; size = 0; }
+    batch.push(...pending); size += length;
   }
   if (batch.length) batches.push(batch);
   return batches;
@@ -152,10 +161,26 @@ export class ReadingEngine {
         try { await copyFile(path.join(doc.directory,name),target); } catch (error) { if (error.code !== 'ENOENT' || name === 'document.json') throw error; }
       }
     }
+    const oldHash = layoutContentHash(doc.reading?.blocks?.length ? doc.reading.blocks : doc.source.blocks);
     // Keep IDs, strings, coordinates, annotations and guide references intact.
     doc.source.blocks = ids.map((id,order)=>({...source.get(id),order}));
     if (doc.reading) doc.reading.blocks = ids.flatMap((id,order)=>reading.has(id)?[{...reading.get(id),order}]:[]);
     doc.readingOrderVersion = READING_ORDER_VERSION; delete doc.readingOrderError;
+    // Reordering does not change glyph geometry. Reuse a verified local layout
+    // instead of extracting fonts and character positions again.
+    const layoutFile = path.join(doc.directory, `layout-v${LAYOUT_VERSION}.json`);
+    try {
+      const layout = JSON.parse(await readFile(layoutFile,'utf8'));
+      if (layout.status === 'ready' && layout.fingerprint === doc.fingerprint && layout.contentHash === oldHash
+          && layout.version === LAYOUT_VERSION && layout.mappingVersion === LAYOUT_MAPPING_VERSION) {
+        layout.contentHash = layoutContentHash(doc.reading?.blocks?.length ? doc.reading.blocks : doc.source.blocks);
+        layout.revision = `${layout.contentHash}:mapping-${LAYOUT_MAPPING_VERSION}`;
+        await copyFile(layoutFile, path.join(backup, `layout-v${LAYOUT_VERSION}.json`));
+        await writeFile(layoutFile+'.tmp',JSON.stringify(layout),'utf8');await rename(layoutFile+'.tmp',layoutFile);
+        this.layouts.set(doc.key,layout);
+        if (doc.reading) doc.reading.flow = readingFlow(doc.reading.blocks,doc.paper.title,doc.paper.authors,layout);
+      }
+    } catch (error) { if (error.code !== 'ENOENT') this.log(error); }
     if (doc.reading) await this.checkpointReading(doc); else await this.save(doc);
     return true;
   }
@@ -208,9 +233,9 @@ export class ReadingEngine {
     const blocks = doc.reading?.blocks?.length ? doc.reading.blocks : doc.source?.blocks;
     if (!blocks?.length) return;
     const contentHash = layoutContentHash(blocks), current = this.layouts.get(doc.key);
-    if (current?.version === LAYOUT_VERSION && current.fingerprint === doc.fingerprint && current.contentHash === contentHash
-      && (current.status === 'ready' || current.status === 'error' && !retry)) return;
-    const base = { version: LAYOUT_VERSION, fingerprint: doc.fingerprint, contentHash, revision: contentHash,
+    if (current?.version === LAYOUT_VERSION && current.mappingVersion === LAYOUT_MAPPING_VERSION && current.fingerprint === doc.fingerprint && current.contentHash === contentHash
+      && !retry && (current.status === 'ready' || current.status === 'error')) return;
+    const base = { version: LAYOUT_VERSION, mappingVersion: LAYOUT_MAPPING_VERSION, fingerprint: doc.fingerprint, contentHash, revision: `${contentHash}:mapping-${LAYOUT_MAPPING_VERSION}`,
       coordinateSystem: 'pdf-unrotated-bottom-left', pages: {}, blocks: {}, fonts: [], warnings: [] };
     this.layouts.set(doc.key, { ...base, status: 'pending' });
     const cacheFile = path.join(doc.directory, `layout-v${LAYOUT_VERSION}.json`);
@@ -219,15 +244,15 @@ export class ReadingEngine {
       await rename(cacheFile + '.tmp', cacheFile);
     };
     const promise = (async () => {
-      // Reading data remains untouched. Only the document revision changes so
-      // existing polling clients receive this independent layout upgrade.
+      // Preserve canonical content. Publish logical paragraph references with a
+      // reading revision so both the reader and archive receive this upgrade.
       await this.save(doc);
       if (!retry) {
         try {
           const cached = JSON.parse(await readFile(cacheFile, 'utf8'));
-          if (cached.version === LAYOUT_VERSION && cached.fingerprint === doc.fingerprint && cached.contentHash === contentHash) {
+          if (cached.version === LAYOUT_VERSION && cached.mappingVersion === LAYOUT_MAPPING_VERSION && cached.fingerprint === doc.fingerprint && cached.contentHash === contentHash) {
             if (['ready', 'error'].includes(cached.status)) {
-              this.layouts.set(doc.key, cached); await this.save(doc); return;
+              this.layouts.set(doc.key, cached); await this.updateReadingFlow(doc,cached); await this.save(doc); return;
             }
             if (cached.status === 'pending') throw new Error('上次 PDF 版式提取已中断；可以单独重试版式提取。');
           }
@@ -236,11 +261,11 @@ export class ReadingEngine {
       await saveCache(this.layouts.get(doc.key));
       const result = await this.enrichLayout({ pdf: doc.pdfPath, directory: doc.directory, fingerprint: doc.fingerprint,
         contentHash, blocks: clone(blocks), signal: this.extractionController.signal });
-      if (result?.version !== LAYOUT_VERSION || result.status !== 'ready' || result.fingerprint !== doc.fingerprint
+      if (result?.version !== LAYOUT_VERSION || result.mappingVersion !== LAYOUT_MAPPING_VERSION || result.status !== 'ready' || result.fingerprint !== doc.fingerprint
         || result.contentHash !== contentHash || !result.blocks || !result.pages || !Array.isArray(result.fonts)) {
         throw new Error('PDF 版式缓存与当前原文不匹配。');
       }
-      this.layouts.set(doc.key, result); await saveCache(result); await this.save(doc);
+      this.layouts.set(doc.key, result); await saveCache(result); await this.updateReadingFlow(doc,result); await this.save(doc);
     })().catch(async error => {
       const failed = { ...base, status: 'error', error: String(error.message || error), retryable: true };
       this.layouts.set(doc.key, failed);
@@ -255,6 +280,14 @@ export class ReadingEngine {
     const doc = this.get(key);
     this.ensureLayout(doc, { retry: true });
     return this.snapshot(key);
+  }
+
+  async updateReadingFlow(doc, layout = this.layouts.get(doc.key)) {
+    if (!doc.reading?.blocks?.length || layout?.status !== 'ready') return;
+    const flow = readingFlow(doc.reading.blocks,doc.paper.title,doc.paper.authors,layout);
+    if (JSON.stringify(flow) !== JSON.stringify(doc.reading.flow)) {
+      doc.reading.flow = flow; await this.checkpointReading(doc);
+    }
   }
 
   async source(doc, signal) {
@@ -286,6 +319,7 @@ export class ReadingEngine {
     doc.reading.doneBlocks = doc.reading.blocks.filter(block => block.status === 'complete').length;
     const sourceMap = { paper: { ...doc.paper, source_type: 'pdf', source_path: doc.pdfPath },
       blocks: doc.reading.blocks.map(block => ({ ...block, original_text: block.original })),
+      flow: doc.reading.flow,
       glossary: doc.reading.guide?.glossary || [], notes: doc.reading.notes || [], fingerprint: doc.fingerprint,
       status: doc.reading.status, updatedAt: doc.reading.updatedAt };
     const mapPath = path.join(doc.directory, 'source_map.json');
@@ -322,10 +356,16 @@ export class ReadingEngine {
       }
       reading.status = 'translating';
       await this.checkpointReading(doc);
-      for (const batch of translationBatches(reading.blocks)) {
+      await this.layoutJobs.get(doc.key);
+      await this.updateReadingFlow(doc);
+      const paragraphById = new Map((reading.flow?.paragraphs || []).flatMap(ids => ids.map(id => [id,ids])));
+      for (const batch of translationBatches(reading.blocks,6000,reading.flow?.paragraphs)) {
         signal.throwIfAborted();
-        const input = batch.map(block => ({ id: block.id, page: block.page, type: block.type, original: block.original }));
-        const prompt = `使用已加载的 nature-reader 规范翻译这篇文献《${doc.paper.title}》的以下完整原文块。全文由程序分批处理，本轮只返回本批译文，不生成摘要或文件。逐项保留 id 与事实、术语、引用及数字。图注完整翻译，数学公式不得改写或猜测；不确定内容显式注明。不要使用工具、不要输出解释或代码围栏。只输出 JSON：{"blocks":[{"id":"S001","translation":"完整中文译文"}]}。每个输入 id 恰好出现一次。\n\n${JSON.stringify(input)}`;
+        const input = batch.map(block => ({ id: block.id, page: block.page, type: block.type, original: block.original,
+          paragraphIds: paragraphById.get(block.id) || [block.id] }));
+        const context = [...new Set(batch.map(b=>paragraphById.get(b.id)).filter(Boolean))].map(ids => ({ids,
+          original: ids.map(id => reading.blocks.find(b=>b.id===id).original).join(' ')}));
+        const prompt = `使用已加载的 nature-reader 规范翻译这篇文献《${doc.paper.title}》的以下来源块。块 ID 是 PDF 物理定位片段，不代表完整段落；paragraphIds 相同的块属于一个连续段落，请结合给出的完整段落上下文翻译，各块只翻译自身原文，不重复相邻内容。不得添加“本段承接”“分栏截断”“下接 Sxxx”等版式说明或补写省略号。全文由程序分批处理，本轮只返回本批译文，不生成摘要或文件。逐项保留 id 与事实、术语、引用及数字。图注完整翻译，数学公式不得改写或猜测；不确定内容显式注明。不要使用工具、不要输出解释或代码围栏。只输出 JSON：{"blocks":[{"id":"S001","translation":"中文译文"}]}。每个输入 id 恰好出现一次。\n\n${JSON.stringify({blocks:input,paragraphContext:context})}`;
         let parsed;
         for (let attempt = 0; attempt < 2; attempt++) {
           const text = await this.model.run({ doc, kind: 'reading', prompt: prompt + (attempt ? '\n上轮格式不完整，请严格返回上述 JSON，完整包含每个 id。' : ''), signal });

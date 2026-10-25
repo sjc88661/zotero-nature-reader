@@ -225,7 +225,41 @@ def reading_order(records, page_width):
             # These are gaps in the union of complete block projections, not
             # spaces between words; a 2.5%-of-page cutoff discarded real gutters.
             if b[0] - a[1] >= max(3, page_width * .008) and page_width * .22 < (a[1] + b[0]) / 2 < page_width * .78]
-    for _, cut in sorted(gaps, reverse=True):
+    # A DOI/address footer may bridge the gutter without spanning the whole
+    # page. Recover column evidence from overlapping, similarly sized prose
+    # blocks instead of requiring a gap in the union of *every* projection.
+    columns = [r for r in records if page_width * .28 <= r['bbox'][2] - r['bbox'][0] <= page_width * .55]
+    for a in columns:
+        ax0, ay0, ax1, ay1 = a['bbox']
+        for b in columns:
+            bx0, by0, bx1, by1 = b['bbox']
+            gap = bx0 - ax1
+            overlap = min(ay1, by1) - max(ay0, by0)
+            if (max(3, page_width * .008) <= gap <= page_width * .15
+                    and ax0 < page_width * .4 < bx0
+                    and min(ax1-ax0, bx1-bx0) >= max(ax1-ax0, bx1-bx0) * .65
+                    and overlap >= min(ay1-ay0, by1-by0) * .25 and overlap >= 8):
+                gaps.append((gap, (ax1 + bx0) / 2))
+    # Pick a gutter supported by the whole prose region, not the widest space
+    # after a short heading. A cut through a substantial column paragraph is
+    # evidence against that gutter; figures/captions are independent floats.
+    prose = [r for r in records if r['type'] in ('paragraph', 'heading')
+             and page_width * .18 <= r['bbox'][2] - r['bbox'][0] <= page_width * .6]
+
+    def gutter_score(candidate):
+        gap, cut = candidate
+        weights = [0., 0., 0.]
+        for record in prose:
+            x0, y0, x1, y1 = record['bbox']
+            side = 0 if x1 <= cut else 1 if x0 >= cut else 2
+            weights[side] += max(1, y1-y0)
+        support = min(weights[0], weights[1])
+        # Full-width material is handled below as horizontal band boundaries.
+        # Narrow crossing material (e.g. a DOI) can remain a spanning block,
+        # but may not outweigh hundreds of lines of coherent column evidence.
+        return (weights[2] / max(1, support), -support, -gap, cut)
+
+    for _, cut in sorted(set(gaps), key=gutter_score):
         left = [r for r in records if r["bbox"][2] <= cut]
         right = [r for r in records if r["bbox"][0] >= cut]
         spanning = [r for r in records if r not in left and r not in right]

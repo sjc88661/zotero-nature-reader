@@ -1,12 +1,12 @@
 {
   "name": "zotero-nature-reader",
-  "version": "0.2.9",
+  "version": "0.2.13",
   "private": true,
   "type": "module",
   "main": "backend/plugin.mjs",
   "description": "Zotero Nature bilingual reading with DSH sessions and direct Obsidian archival",
   "scripts": {
-    "test": "node --test tests/annotations.test.mjs tests/engine.test.mjs tests/figure-chat-runtime.test.mjs tests/harness.test.mjs tests/layout.test.mjs",
+    "test": "node --test tests/*.test.mjs",
     "test:bridge": "node --test bridge/tests/annotations.test.cjs bridge/tests/bridge.test.cjs bridge/tests/external.test.cjs",
     "build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-all.ps1",
     "demo": "node demo/server.mjs"

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ReadingEngine } from '../backend/engine.mjs';
 import { layoutContentHash } from '../backend/layout.mjs';
+import { readingFlow } from '../backend/reading-flow.mjs';
 
 test('layout-only cache upgrades preserve reading/chat, invalidate source changes, and require explicit failure retry', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'nature-layout-test-'));
@@ -21,13 +22,15 @@ test('layout-only cache upgrades preserve reading/chat, invalidate source change
     enrichLayout: async input => {
       calls++;
       if (fail) throw new Error('fixture failure');
-      return { version: 1, status: 'ready', fingerprint: input.fingerprint, contentHash: input.contentHash,
+      return { version: 1, mappingVersion: 2, status: 'ready', fingerprint: input.fingerprint, contentHash: input.contentHash,
         revision: input.contentHash, pages: {}, blocks: {}, fonts: [] };
     } };
   let engine = new ReadingEngine(config); await engine.start();
   const request = { paper: { libraryID: 1, itemKey: 'PAPER001', title: 'Fixture' }, attachmentKey: 'PDFFILE1', pdfPath: pdf };
   const opened = await engine.open(request), doc = engine.get(opened.key);
   doc.reading = { status: 'complete', revision: 9, blocks: [{ id: 'S001', page: 1, order: 0, bbox: [1,2,3,4], original: 'Unchanged 𝛼', translation: '保持原译文', status: 'complete' }], guide: { overview: '保留导读' } };
+  // Seed the current flow schema to isolate layout migration from flow migration.
+  doc.reading.flow = readingFlow(doc.reading.blocks,doc.paper.title,doc.paper.authors,{});
   doc.source = { blocks: structuredClone(doc.reading.blocks) };
   doc.chat = [{ id: 'one', status: 'complete', question: '保留问题', answer: '保留回答' }];
   await engine.save(doc);
@@ -77,4 +80,34 @@ test('layout-only cache upgrades preserve reading/chat, invalidate source change
   assert.equal(calls, 4, 'new extraction schedules layout without starting reading/model jobs');
   assert.equal(engine.snapshot(fresh.key).reading, null);
   await engine.close();
+});
+
+test('旧坐标算法缓存自动本地升级，不改动译文或调用模型',async t=>{
+  const root=await mkdtemp(path.join(tmpdir(),'nature-layout-migration-'));
+  t.after(async()=>{
+    assert.equal(path.dirname(path.resolve(root)),path.resolve(tmpdir()));
+    assert.match(path.basename(root),/^nature-layout-migration-/);
+    await rm(root,{recursive:true,force:true});
+  });
+  const pdf=path.join(root,'paper.pdf');await writeFile(pdf,'%PDF fixture');let calls=0;
+  const config={workRoot:path.join(root,'work'),model:{run(){assert.fail('坐标升级不能调用模型');}},
+    enrichLayout:async input=>{calls++;return {version:1,mappingVersion:2,status:'ready',fingerprint:input.fingerprint,
+      contentHash:input.contentHash,revision:input.contentHash+':mapping-2',pages:{},blocks:{},fonts:[]};}};
+  let engine=new ReadingEngine(config);await engine.start();t.after(async()=>engine.close());
+  const request={paper:{libraryID:1,itemKey:'PAPER001',title:'Fixture'},attachmentKey:'PDFFILE1',pdfPath:pdf};
+  const opened=await engine.open(request),doc=engine.get(opened.key);
+  doc.source={blocks:[{id:'S001',page:1,order:0,bbox:[0,0,10,10],original:'file'}]};
+  doc.reading={status:'complete',revision:1,blocks:[{...doc.source.blocks[0],translation:'文件',status:'complete'}],guide:{overview:'保留'}};
+  doc.reading.flow=readingFlow(doc.reading.blocks,doc.paper.title,doc.paper.authors,{});
+  const protectedText=JSON.stringify([doc.source,doc.reading]);await engine.save(doc);
+  engine.ensureLayout(doc);await engine.layoutJobs.get(doc.key);assert.equal(calls,1);
+  const file=path.join(doc.directory,'layout-v1.json'),legacy=JSON.parse(await readFile(file,'utf8'));
+  delete legacy.mappingVersion;await writeFile(file,JSON.stringify(legacy));await engine.close();
+  engine=new ReadingEngine(config);await engine.start();await engine.open(request);await engine.layoutJobs.get(doc.key);
+  assert.equal(calls,2,'旧版坐标缓存必须自动重建');
+  assert.equal(engine.snapshot(doc.key).layout.mappingVersion,2);
+  assert.equal(JSON.stringify([engine.get(doc.key).source,engine.get(doc.key).reading]),protectedText);
+  assert.equal(engine.retryLayout(doc.key).layout.status,'pending','手动刷新也必须能重建已完成的坐标缓存');
+  await engine.layoutJobs.get(doc.key);assert.equal(calls,3);
+  assert.equal(JSON.stringify([engine.get(doc.key).source,engine.get(doc.key).reading]),protectedText);
 });

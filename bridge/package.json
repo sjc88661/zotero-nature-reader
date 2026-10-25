@@ -1,6 +1,6 @@
 {
   "name": "zotero-obsidian-literature-bridge",
-  "version": "0.3.4",
+  "version": "0.3.7",
   "private": true,
   "description": "Bilingual readings, DSH and Awesome GPT discussions in one Obsidian note per Zotero paper",
   "scripts": {

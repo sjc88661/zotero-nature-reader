@@ -1,6 +1,7 @@
 (function (root) {
   "use strict";
   const PaperMetadata = typeof module !== "undefined" && module.exports ? require("./paper-metadata.js") : root.PaperMetadata;
+  const ReadingLayout = typeof module !== "undefined" && module.exports ? require("./reading-layout.js") : root.ZNRLayout;
 
   const REGION_NAMES = ["info", "annotations", "summary", "discussions", "nature"];
   const marker = (name, edge) => `<!-- zob:${name}:${edge} -->`;
@@ -126,6 +127,13 @@
       lines.push("#### 全文双语对照");
       const metadata = PaperMetadata.classify(blocks, paper.title, paper.authors);
       const metadataIds = new Set(metadata.ids);
+      const continuationOwners = new Map(), continuations = new Map();
+      for (const ids of reading.flow?.paragraphs || []) {
+        continuations.set(ids[0],ids.map(id=>byId.get(id)));
+        for (const id of ids) continuationOwners.set(id,ids[0]);
+      }
+      const noteGroups = (reading.flow?.folded || []).filter(group=>group.key.startsWith('notes-'));
+      const noteIds = new Set(noteGroups.flatMap(group=>group.ids));
       const captionOwners = new Map();
       for (const block of blocks) if (block.asset) for (const id of block.captionIds || []) if (byId.get(id)?.type === "caption") captionOwners.set(id, block.id);
       const renderBlock = block => {
@@ -146,21 +154,33 @@
         return blockLines.join("\n\n");
       };
       const renderMetadata = () => {
-        if (metadata.ids.length) lines.push("> [!info]- 作者、单位与通讯信息\n" + metadata.ids
+        if (metadata.ids.length) lines.push("> [!info]- 文献信息 · 作者、单位与出版说明\n" + metadata.ids
           .map(id => renderBlock(byId.get(id))).join("\n\n").split("\n").map(line => "> " + line).join("\n"));
+      };
+      const renderParagraph = group => {
+        const spans = ReadingLayout.translationSpans(group);
+        const combine=(parts,language)=>parts.reduce((text,part,i)=>text+(i?ReadingLayout.separator(parts[i-1],part,language):'')+part,'');
+        const original = combine(group.map(b=>b.original),'original');
+        const chinese = combine(group.map((b,i)=>ReadingLayout.displayRanges(spans[i]).map(r=>b.translation.slice(r.start,r.end)).join('')),'translation');
+        const provenance = group.flatMap((b,i)=>[
+          `[${b.id} · PDF 第 ${b.page} 页](zotero://open-pdf/${prefix}/items/${reading.attachmentKey}?page=${b.page})`,
+          ...spans[i].notes, `^${readingAnchor(reading.id,b.id)}`]);
+        return `##### 连续段落 · 第 ${group[0].page}–${group.at(-1).page} 页\n\n**原文**\n\n${escapeMarkers(original)}\n\n**中文**\n\n${escapeMarkers(chinese)}\n\n> [!info]- 原文定位与旧译文断栏说明\n` + provenance.join('\n\n').split('\n').map(line=>'> '+escapeMarkers(line)).join('\n');
       };
       if (!metadata.titleId) renderMetadata();
       for (const block of blocks) {
-        if (captionOwners.has(block.id) || metadataIds.has(block.id)) continue;
+        if (captionOwners.has(block.id) || metadataIds.has(block.id) || noteIds.has(block.id)
+          || continuationOwners.has(block.id) && continuationOwners.get(block.id)!==block.id) continue;
         if (block.visualParentId) {
           lines.push(`原图分面 ${escapeMarkers(block.id)} 已合并至 ${sourceLink(block.visualParentId)}。\n\n^${readingAnchor(reading.id, block.id)}`);
           continue;
         }
-        lines.push(renderBlock(block));
+        lines.push(continuations.has(block.id) ? renderParagraph(continuations.get(block.id)) : renderBlock(block));
         if (block.id === metadata.titleId) renderMetadata();
         for (const id of block.captionIds || []) if (byId.get(id)?.type === "caption") lines.push(renderBlock(byId.get(id)));
         if (block.readingNote?.text) lines.push(`**图表阅读提示** · ${block.readingNote.mode === "image" ? "依据原图、图注与正文" : "仅依据图注与正文，未查看实际图像"}\n\n${escapeMarkers(block.readingNote.text)}`);
       }
+      if(noteGroups.length)lines.push('> [!info]- 页眉、页脚与出版附注\n'+noteGroups.flatMap(group=>group.ids.map(id=>renderBlock(byId.get(id)))).join('\n\n').split('\n').map(line=>'> '+line).join('\n'));
       return lines.join("\n\n");
     }).join("\n\n---\n\n");
   }
@@ -325,6 +345,19 @@
       return block;
     });
     const blockMap = new Map(reading.blocks.map(block => [block.id, block]));
+    if (reading.flow !== undefined) {
+      const flow=reading.flow, used=new Set(), folded=new Set();
+      if (!flow || ![1,2].includes(flow.version) || !Array.isArray(flow.paragraphs) || !Array.isArray(flow.folded)) throw new Error('精读段落结构无效。');
+      for(const ids of flow.paragraphs){
+        if(!Array.isArray(ids)||ids.length<2)throw new Error('精读续段结构无效。');
+        let previous=-Infinity;
+        for(const id of ids){const block=blockMap.get(id);if(!block||block.type!=='paragraph'||block.asset||used.has(id)||block.order<=previous)throw new Error('精读续段来源无效。');used.add(id);previous=block.order;}
+      }
+      for(const group of flow.folded){
+        if(!group||! /^(?:authors-|notes-|graphic-)[a-zA-Z0-9_-]+$/.test(group.key)||!Array.isArray(group.ids))throw new Error('精读附注结构无效。');
+        for(const id of group.ids){if(!blockMap.has(id)||folded.has(id)||used.has(id))throw new Error('精读附注来源无效。');folded.add(id);}
+      }
+    }
     for (const block of reading.blocks) {
       if (block.captionIds !== undefined && (!block.asset || !Array.isArray(block.captionIds)
         || new Set(block.captionIds).size !== block.captionIds.length || block.captionIds.some(id => blockMap.get(id)?.type !== "caption" || blockMap.get(id).page !== block.page))) throw new Error("图注关联缺少同页的有效来源。");

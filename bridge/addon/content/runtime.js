@@ -2,7 +2,7 @@
   "use strict";
   const { Zotero, Services, IOUtils, PathUtils, ZOBCore: Core, ZOBStore: Store, ZOBAdapter: Adapter } = root;
   const PREF = "extensions.zotero.obsidianLiteratureBridge.";
-  const VERSION = "0.3.4";
+  const VERSION = "0.3.7";
 
   class Runtime {
     constructor() {

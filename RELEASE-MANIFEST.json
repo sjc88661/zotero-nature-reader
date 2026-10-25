@@ -1,19 +1,22 @@
 {
-  "release": "v0.2.9",
+  "release": "v0.2.13",
   "date": "2026-10-25",
   "components": {
-    "zoteroReader": "0.2.9",
-    "harnessBackend": "0.2.5",
-    "obsidianBridge": "0.3.4"
+    "zoteroReader": "0.2.13",
+    "harnessBackend": "0.2.9",
+    "obsidianBridge": "0.3.7"
   },
   "license": "MIT",
   "platform": "Windows",
   "externalSkillsBundled": false,
   "demoData": "original fictional material; no model calls",
   "validation": {
-    "readerTests": 22,
+    "readerTests": 31,
     "bridgeTests": 24,
+    "pythonReadingOrderTests": 3,
     "addonBuilds": 2,
-    "publicScreenshots": 7
+    "publicScreenshots": 7,
+    "screenshotsRegenerated": false,
+    "modelCalls": 0
   }
 }

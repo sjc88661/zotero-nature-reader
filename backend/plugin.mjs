@@ -5,11 +5,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 const build = new URL(import.meta.url).searchParams.get('build') || String(Date.now());
-const [{ ReadingEngine, VERSION, PROTOCOL_VERSION, makeExtractor }, { HarnessModel, loadNatureSkills }, { makeLayoutExtractor }, { makeOrderRepair }] = await Promise.all([
+const [{ ReadingEngine, VERSION, PROTOCOL_VERSION, makeExtractor }, { HarnessModel, loadNatureSkills }, { makeLayoutExtractor }, { makeOrderRepair }, { LocalServiceHost, readerServicePort }] = await Promise.all([
   import(new URL(`./engine.mjs?build=${build}`, import.meta.url).href),
   import(new URL(`./harness.mjs?build=${build}`, import.meta.url).href),
   import(new URL(`./layout.mjs?build=${build}`, import.meta.url).href),
-  import(new URL(`./reading-order.mjs?build=${build}`, import.meta.url).href)
+  import(new URL(`./reading-order.mjs?build=${build}`, import.meta.url).href),
+  import(new URL(`./service-host.mjs?build=${build}`, import.meta.url).href)
 ]);
 
 export const name = '@dsh-external/zotero-nature-reader';
@@ -33,12 +34,34 @@ async function bodyOf(request) {
 
 export async function apply(ctx, config = {}) {
   const home = config.dshHome || process.env.DSH_HOME || path.join(homedir(), '.dsh');
+  const host = new LocalServiceHost({
+    port: config.servicePort ?? readerServicePort(home),
+    createServer: () => http.createServer((_request, response) => send(response, 503, { error: 'Nature 服务正在准备，请稍后重试。' })),
+    activate: server => activateReader(ctx, config, home, server),
+    log: error => ctx.logger?.warn?.(`[Zotero Nature] ${String(error?.message || error)}`)
+  });
+  ctx.effect(() => () => host.close(), 'zotero-nature: exclusive reader service');
+  await host.start();
+}
+
+async function activateReader(ctx, config, home, server) {
   const connectionFile = path.join(home, 'zotero-nature', 'connection.json');
   const skillRoot = config.skillRoot || path.join(homedir(), '.codex', 'skills');
   const nature = await loadNatureSkills(skillRoot);
   const token = randomBytes(32).toString('hex');
-  let engine;
+  let engine, ready = false;
   const log = error => ctx.logger?.warn?.(`[Zotero Nature] ${String(error?.message || error)}`);
+  const dispose = async () => {
+    ready = false;
+    try { await engine?.close(); }
+    finally {
+      try {
+        const current = JSON.parse(await readFile(connectionFile, 'utf8'));
+        if (current.token === token) await unlink(connectionFile);
+      } catch (error) { if (error.code !== 'ENOENT') log(error); }
+    }
+  };
+  try {
   const model = new HarnessModel({ ctx, nature, preset: config.agentPreset || 'standard', checkpoint: doc => engine.save(doc) });
   const python = config.python || path.join(project, '.venv', 'Scripts', 'python.exe');
   engine = new ReadingEngine({ workRoot: config.workRoot || path.join(project, 'work'), model,
@@ -57,8 +80,10 @@ export async function apply(ctx, config = {}) {
     } catch (error) { log(error); }
     finally { await handle?.close(); }
   }
-  const server = http.createServer(async (request, response) => {
+  server.removeAllListeners('request');
+  server.on('request', async (request, response) => {
     try {
+      if (!ready) return send(response, 503, { error: 'Nature 服务正在准备或关闭，请稍后重试。' });
       const host = request.headers.host || '';
       if (!/^127\.0\.0\.1:\d+$/.test(host) || (request.headers.origin && !/^chrome:\/\//.test(request.headers.origin))) return send(response, 403, { error: '仅接受本机 Zotero 请求。' });
       const given = Buffer.from(String(request.headers.authorization || ''));
@@ -86,17 +111,11 @@ export async function apply(ctx, config = {}) {
       send(response, 404, { error: '接口不存在。' });
     } catch (error) { send(response, error.statusCode || 400, { error: String(error.message || error) }); }
   });
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   await mkdir(path.dirname(connectionFile), { recursive: true });
   await writeFile(connectionFile + '.tmp', JSON.stringify({ protocolVersion: PROTOCOL_VERSION, version: VERSION, pid: process.pid,
     url: `http://127.0.0.1:${server.address().port}`, token, startedAt: Date.now(), project, build }, null, 2), { mode: 0o600 });
   await rename(connectionFile + '.tmp', connectionFile);
-  ctx.effect(() => async () => {
-    server.closeAllConnections(); server.close();
-    await engine.close();
-    try {
-      const current = JSON.parse(await readFile(connectionFile, 'utf8'));
-      if (current.token === token) await unlink(connectionFile);
-    } catch (error) { if (error.code !== 'ENOENT') log(error); }
-  }, 'zotero-nature: reader service');
+  ready = true;
+  return dispose;
+  } catch (error) { await dispose(); throw error; }
 }

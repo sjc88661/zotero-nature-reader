@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Nature 精读 · DeepSeek Harness",
-  "version": "0.2.9",
+  "version": "0.2.13",
   "description": "Zotero 内的 DSH 文献问答、Nature 全文双语精读与 Obsidian 自动归档。",
   "author": "sjc88661 and contributors",
   "applications": {
