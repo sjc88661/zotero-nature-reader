@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const scope=vm.createContext({Zotero:{},Services:{uuid:{generateUUID:()=>'{chat-test}'}},structuredClone});
+vm.runInContext(readFileSync(new URL('../addon/content/runtime.js',import.meta.url),'utf8'),scope);
+test('图表窗口显式选段覆盖侧栏旧选段，问题先归档再发送，重试沿用原记录',async()=>{
+  const runtime=Object.create(scope.ZNRRuntime.prototype), key='paper-test', calls=[];
+  const binding={key,paper:{libraryID:1,itemKey:'DEMO0001'},selected:{kind:'figure',blockId:'F001',page:2}};
+  const snapshot={chat:[],busyChat:false};runtime.known=new Map([[key,{snapshot}]]);
+  runtime.bridge=()=>({async archiveExternal({record}){calls.push({type:'archive',record:structuredClone(record)});}});
+  runtime.emit=()=>{};runtime.absorb=async()=>{};
+  runtime.request=async(method,url,body)=>{calls.push({type:'request',body:structuredClone(body)});return {};};
+  await runtime.action(binding,{action:'chat',paperKey:key,id:'table-question',question:'这个数字表示什么？',selection:{kind:'figure',blockId:'T001',page:3,figureNote:false}});
+  assert.deepEqual(calls.map(c=>c.type),['archive','request']);
+  assert.equal(calls[0].record.selection.blockId,'T001');assert.equal(calls[1].body.selection.blockId,'T001');
+  assert.match(calls[0].record.question,/^\[T001 p\.3\]/);assert.equal(calls[0].record.status,'pending');
+  calls.length=0;
+  await runtime.action(binding,{action:'chat',paperKey:key,id:'table-question',question:snapshot.chat[0].question,retry:true});
+  assert.equal(calls[0].record.id,'table-question');assert.equal(calls[0].record.selection.blockId,'T001');
+  assert.equal(snapshot.chat.length,1);
+});
+test('图表对话正文变化在精读 revision 不变时也推送到阅读窗口',async()=>{
+  const runtime=Object.create(scope.ZNRRuntime.prototype),key='paper-test',binding={key,mode:'bilingual',viewer:{},paper:{}};
+  binding.reader={};const snapshot={reading:{revision:5,assets:[]},chat:[{id:'q',answer:'',status:'streaming'}],busyChat:true};
+  runtime.known=new Map([[key,{snapshot}]]);runtime.bindings=new Map([[binding.reader,binding]]);
+  runtime.annotations={rows:new Map(),data:{undo:[]}};runtime.appearance=()=>({});runtime.connected=true;
+  const states=[];runtime.emitDocument=(frame,state)=>states.push(structuredClone(state));
+  await runtime.emitReader(binding);snapshot.chat[0].answer='完整回答';snapshot.chat[0].status='complete';snapshot.busyChat=false;
+  await runtime.emitReader(binding);
+  assert.equal(states.length,2);assert.equal(states[1].chat[0].answer,'完整回答');assert.equal(states[1].busyChat,false);
+});

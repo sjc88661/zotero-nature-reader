@@ -1,0 +1,15 @@
+{
+  "manifest_version": 2,
+  "name": "Obsidian 文献笔记 · Awesome GPT Bridge",
+  "version": "0.3.4",
+  "description": "将全文双语精读、阅读导引、DSH 与 Awesome GPT 讨论及 Zotero PDF 标注自动归档到同一篇 Obsidian 文献笔记。",
+  "author": "sjc88661 and contributors",
+  "applications": {
+    "zotero": {
+      "id": "obsidian-literature-bridge@codex.local",
+      "update_url": "https://127.0.0.1/obsidian-literature-bridge/updates.json",
+      "strict_min_version": "10.0",
+      "strict_max_version": "11.*"
+    }
+  }
+}

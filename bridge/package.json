@@ -1,0 +1,14 @@
+{
+  "name": "zotero-obsidian-literature-bridge",
+  "version": "0.3.4",
+  "private": true,
+  "description": "Bilingual readings, DSH and Awesome GPT discussions in one Obsidian note per Zotero paper",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <title>Nature 精读</title>
+  <link rel="stylesheet" href="chrome://zotero-nature/content/styles.css" />
+</head>
+<body class="panel">
+  <header class="panel-header">
+    <div class="brand"><span class="brand-symbol">N</span><strong>Nature 精读</strong></div>
+    <div class="header-actions"><button class="icon-button" id="reconnect" title="重新连接" aria-label="重新连接">↻</button><button class="icon-button" id="collapse" title="收起侧栏" aria-label="收起侧栏">‹</button></div>
+  </header>
+  <details id="paper-overview" class="paper-overview">
+  <summary><span class="overview-summary"><span id="compact-title">当前文献</span><span id="compact-status">展开文献信息与操作</span></span></summary>
+  <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection">正在连接 Harness…</span><button class="text-button" id="settings">设置</button></div>
+  <section class="paper-heading"><span class="eyebrow">当前文献</span><h1 id="paper-title">请打开一篇 PDF 文献</h1><button class="text-button" id="open-note">在 Obsidian 中打开笔记 ↗</button></section>
+  <div class="mode-switch" role="group" aria-label="阅读模式"><button id="mode-pdf" class="active">原文 PDF</button><button id="mode-bilingual">双语精读</button></div>
+  <section class="generation"><div class="generation-head"><button id="generate" class="primary">开始精读</button><button id="cancel-reading" class="text-button" hidden="hidden">暂停</button><span id="progress-label" class="muted">全文双语 · 阅读指南</span></div><progress id="progress" max="100" value="0"></progress><div id="generation-note" class="small muted">首次点击生成，之后自动读取已保存内容。</div></section>
+  </details>
+  <div id="error" class="notice error" role="alert" hidden="hidden"></div><div id="archive-error" class="notice" hidden="hidden"></div>
+  <div id="source-notice" class="notice" hidden="hidden"></div>
+  <nav class="tabs" aria-label="阅读助手"><button class="active" data-tab="chat">AI 问答</button><button data-tab="highlights">阅读重点</button><button data-tab="guide">精读指南</button></nav>
+  <main id="tab-body">
+    <section id="chat-tab" class="tab-content"><div id="messages" class="messages"><div class="welcome"><h2>从一个问题开始</h2><p>与你的文献对话，回答和精读内容会自动保存在同一篇 Obsidian 笔记中。</p><div class="quick-actions"><button data-prompt="请概括这篇文献的核心问题、主要结论和证据，并标注来源。">总结论文 <span>↗</span></button><button data-prompt="请梳理论文大纲，并说明各章节在论证中的作用。">梳理论文大纲 <span>↗</span></button><button data-prompt="请为我生成学习指南：先读什么、重点看哪些方法和图表、有哪些需要核实的问题？">生成学习指南 <span>↗</span></button><button data-prompt="请分析这篇文献的方法、证据强度与主要局限，并指出应重点阅读的原文位置。">方法与局限 <span>↗</span></button></div></div></div></section>
+    <section id="highlights-tab" class="tab-content" hidden="hidden"><div id="highlights" class="cards"></div></section>
+    <section id="guide-tab" class="tab-content" hidden="hidden"><div id="guide" class="guide-body"></div></section>
+  </main>
+  <footer class="composer-area"><div id="selection" class="selection" hidden="hidden"><button id="clear-selection" class="icon-button" title="移除选段">×</button><span id="selection-text"></span></div><form id="chat-form"><textarea id="question" rows="3" placeholder="询问这篇文献，或选中原文提问…" aria-label="文献问题"></textarea><div class="composer-bottom"><span class="small muted">Enter 发送 · Shift+Enter 换行</span><button id="stop-chat" type="button" class="text-button" hidden="hidden">停止</button><button id="send" type="submit" class="send-button" title="发送问题" aria-label="发送问题">↑</button></div></form><div id="archive-status" class="archive-status">内容自动保存到 Obsidian</div></footer>
+  <script src="chrome://zotero-nature/content/selection-text.js"></script><script src="chrome://zotero-nature/content/common.js"></script>
+  <script src="chrome://zotero-nature/content/panel-selection.js"></script><script src="chrome://zotero-nature/content/panel.js"></script>
+</body></html>

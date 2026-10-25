@@ -1,0 +1,15 @@
+{
+  "manifest_version": 2,
+  "name": "Nature 精读 · DeepSeek Harness",
+  "version": "0.2.9",
+  "description": "Zotero 内的 DSH 文献问答、Nature 全文双语精读与 Obsidian 自动归档。",
+  "author": "sjc88661 and contributors",
+  "applications": {
+    "zotero": {
+      "id": "zotero-nature-reader@codex.local",
+      "update_url": "https://127.0.0.1/zotero-nature-reader/updates.json",
+      "strict_min_version": "10.0",
+      "strict_max_version": "11.*"
+    }
+  }
+}

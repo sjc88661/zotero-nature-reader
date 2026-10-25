@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" windowtype="zob:manager">
+  <head>
+    <meta charset="utf-8" />
+    <title>Obsidian 文献笔记</title>
+    <style>
+      :root { color-scheme: light dark; font: 14px/1.6 system-ui, sans-serif; }
+      body { margin: 24px; max-width: 1000px; }
+      h1 { font-size: 24px; margin-bottom: 4px; } h2 { font-size: 17px; margin: 22px 0 8px; }
+      p { margin: 6px 0; } .muted { opacity: .75; } .row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+      button { font: inherit; padding: 5px 12px; cursor: pointer; } input[type="text"] { font: inherit; padding: 5px 8px; box-sizing: border-box; width: 100%; }
+      label.setting { display: block; margin: 10px 0; } #paper { font-weight: 600; }
+      #history { border: 1px solid #8886; border-radius: 6px; max-height: 280px; overflow: auto; }
+      .record { padding: 8px 12px; border-bottom: 1px solid #8883; } .record:last-child { border: 0; }
+      .record label { display: flex; gap: 8px; align-items: baseline; cursor: pointer; } .record span { white-space: pre-wrap; overflow-wrap: anywhere; }
+      details { margin-left: 24px; } pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; font: inherit; }
+      #message { min-height: 24px; white-space: pre-wrap; color: #147a50; } #message.error { color: #c64343; }
+    </style>
+    <script src="chrome://zob-bridge/content/manager.js" defer="defer"></script>
+  </head>
+  <body>
+    <h1>Obsidian 文献笔记</h1>
+    <p class="muted">一篇文献一篇笔记 · 讨论与 PDF 标注自动保存 · 个人整理始终保留</p>
+    <p id="status" role="status">正在连接…</p>
+    <h2>当前文献</h2>
+    <p id="paper">请在 Zotero 中选中一篇文献或打开 PDF。</p>
+    <div class="row">
+      <button id="refresh" type="button">刷新当前文献</button>
+      <button id="open" type="button">打开 / 创建笔记</button>
+      <button id="annotations" type="button">同步本篇文献标注</button>
+      <button id="summarize" type="button">AI 整理本篇讨论</button>
+      <button id="cancel" type="button" disabled="disabled">取消整理</button>
+    </div>
+    <p class="muted">AI 整理使用 Awesome GPT 当前模型，只有点击时才调用；长讨论会分段处理。</p>
+    <p class="muted">标注自动同步摘录、批注、页码、截图与手绘，并保留回到原文的链接。已有笔记的历史标注启动时补齐，其他文献可点击上方按钮导入。</p>
+    <p id="message" role="status" aria-live="polite"></p>
+    <h2>历史讨论与待归档记录</h2>
+    <p class="muted">选中记录后，归档到上方显示的文献。已归档记录不会重复导入。</p>
+    <div class="row">
+      <button id="select-all" type="button">全选 / 取消全选</button>
+      <button id="import" type="button">将所选讨论归档到当前文献</button>
+      <button id="retry" type="button">重试待同步笔记</button>
+    </div>
+    <div id="history"></div>
+    <h2>保存位置</h2>
+    <label class="setting">Obsidian 库根目录<input id="vault" type="text" /></label>
+    <label class="setting">库内笔记文件夹<input id="folder" type="text" /></label>
+    <button id="save" type="button">保存设置</button>
+  </body>
+</html>

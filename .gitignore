@@ -1,0 +1,13 @@
+.venv/
+node_modules/
+work/
+backups/
+dist/
+__pycache__/
+*.pyc
+*.log
+.env
+.env.*
+connection.json
+*.xpi
+.DS_Store
